@@ -1,5 +1,2 @@
-PassengerEnabled on
-PassengerAppRoot /home/g/givanu3m/givanu3m.beget.tech/public_html
+PassengerEnabled On
 PassengerPython /usr/bin/python3
-PassengerAppType wsgi
-PassengerStartupFile app.wsgi
