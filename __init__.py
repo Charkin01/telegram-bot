@@ -1,11 +1,9 @@
-﻿import os
-from flask import Flask
-from app.server import setup_routes
-from app.bot import run_bot
-
+﻿from flask import Flask
 app = Flask(__name__)
-setup_routes(app)     
-run_bot()             
+
+@app.route('/')
+def hello_world():
+    return 'Hello Flask!'
 
 if __name__ == '__main__':
     app.run()

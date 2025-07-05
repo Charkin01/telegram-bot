@@ -3,8 +3,8 @@ import logging
 import asyncio
 import aiosqlite
 
-from dotenv import load_dotenv  # ✅ Load environment variables
-load_dotenv()                   # ✅ Called once, right after imports
+from dotenv import load_dotenv
+load_dotenv()
 
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
@@ -16,18 +16,18 @@ from telegram.ext import (
     filters
 )
 
-# --- Configuration ---
+# --- Config ---
 DB_FILE = "users.db"
 ASKING_ORG_NAME = "asking_org_name"
 ASKING_ADDRESS = "asking_address"
 ASKING_CONTACT = "asking_contact"
 
-# --- Logging setup ---
+# --- Logger ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-# --- Database manager ---
+# --- Database ---
 class DatabaseManager:
     @staticmethod
     async def init_db():
@@ -65,53 +65,43 @@ class DatabaseManager:
         async with aiosqlite.connect(DB_FILE) as db:
             columns = ", ".join([f"{key} = ?" for key in fields])
             values = list(fields.values()) + [user_id]
-            await db.execute(
-                f"UPDATE users SET {columns} WHERE user_id = ?",
-                values
-            )
+            await db.execute(f"UPDATE users SET {columns} WHERE user_id = ?", values)
             await db.commit()
 
 
-# --- Bot Handlers ---
+# --- Handlers ---
 class BotHandlers:
     @staticmethod
     async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
-        user_id = user.id
-        username = user.username or ""
-        first_name = user.first_name or "пользователь"
-
         await DatabaseManager.init_db()
-        user_record = await DatabaseManager.get_user(user_id)
+        user_data = await DatabaseManager.get_user(user.id)
 
-        if user_record and all(user_record[3:6]):
-            org_name, address, contact = user_record[3], user_record[4], user_record[5]
+        if user_data and all(user_data[3:6]):
+            org, addr, contact = user_data[3:6]
             keyboard = [["/reset"]]
-            reply = (
-                f"С возвращением, {first_name}!\n"
-                f"Ваша организация: {org_name}\n"
-                f"Адрес: {address}\n"
-                f"Контакт: {contact}\n\n"
-                "Для сброса данных нажмите /reset"
+            msg = (
+                f"С возвращением, {user.first_name or 'пользователь'}!\n"
+                f"Организация: {org}\nАдрес: {addr}\nКонтакт: {contact}\n\n"
+                "Нажмите /reset для сброса."
             )
-            await update.message.reply_text(reply, reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
+            await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
         else:
-            if not user_record:
-                await DatabaseManager.create_user(user_id, username, first_name)
+            if not user_data:
+                await DatabaseManager.create_user(user.id, user.username or "", user.first_name or "")
             await update.message.reply_text("Привет! Как называется ваша организация?")
 
     @staticmethod
     async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user_id = update.effective_user.id
-        await DatabaseManager.update_user(user_id,
-                                          org_name=None,
-                                          address=None,
-                                          contact=None,
-                                          state=ASKING_ORG_NAME)
-        await update.message.reply_text(
-            "Ваши данные сброшены. Как называется ваша организация?",
-            reply_markup=ReplyKeyboardRemove()
+        await DatabaseManager.update_user(
+            update.effective_user.id,
+            org_name=None,
+            address=None,
+            contact=None,
+            state=ASKING_ORG_NAME
         )
+        await update.message.reply_text("Данные сброшены. Как называется ваша организация?",
+                                        reply_markup=ReplyKeyboardRemove())
 
     @staticmethod
     async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -119,40 +109,46 @@ class BotHandlers:
         text = update.message.text.strip()
         user = await DatabaseManager.get_user(user_id)
 
-        if not user or not user[6]:  # no state
+        if not user or not user[6]:
             return
 
         state = user[6]
-        state_logic = {
-            ASKING_ORG_NAME: ("org_name", "Отлично! Теперь укажите адрес организации:", ASKING_ADDRESS),
-            ASKING_ADDRESS: ("address", "Хорошо! Укажите контактный номер:", ASKING_CONTACT),
-            ASKING_CONTACT: ("contact", "Спасибо! Регистрация завершена. Используйте /start чтобы увидеть данные.", None)
+        flow = {
+            ASKING_ORG_NAME: ("org_name", "Укажите адрес организации:", ASKING_ADDRESS),
+            ASKING_ADDRESS: ("address", "Укажите контактный номер:", ASKING_CONTACT),
+            ASKING_CONTACT: ("contact", "Спасибо! Регистрация завершена. Используйте /start для просмотра.", None),
         }
 
-        if state in state_logic:
-            field, reply, next_state = state_logic[state]
+        if state in flow:
+            field, next_msg, next_state = flow[state]
             await DatabaseManager.update_user(user_id, **{field: text, "state": next_state})
-            await update.message.reply_text(reply)
+            await update.message.reply_text(next_msg)
 
 
-# --- Application factory ---
+# --- Bot factory ---
 def create_application() -> Application:
-    app = ApplicationBuilder().token(os.getenv("BOT_TOKEN")).build()
+    token = os.getenv("BOT_TOKEN")
+    if not token:
+        raise RuntimeError("❌ BOT_TOKEN not set in environment")
+    app = ApplicationBuilder().token(token).build()
+
     app.add_handler(CommandHandler("start", BotHandlers.start))
     app.add_handler(CommandHandler("reset", BotHandlers.reset))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, BotHandlers.handle_text))
+
     return app
 
 
-# --- Optional: Polling entry for local run ---
+# --- Optional: run polling manually ---
 if __name__ == "__main__":
     async def main():
         await DatabaseManager.init_db()
-        application = create_application()
-        logger.info("✅ Bot started via polling mode.")
-        await application.run_polling()
+        app = create_application()
+        logger.info("🤖 Bot polling started")
+        await app.run_polling()
 
     asyncio.run(main())
+
 
 
 

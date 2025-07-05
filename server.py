@@ -1,40 +1,39 @@
-﻿from flask import Flask, request
-import logging
+﻿import logging
 import os
+from flask import Flask, request
+
 from telegram import Update
 from telegram.ext import Application
-from bot import create_application  # You will define this in bot.py
 
-# Optional: load .env if needed in future
-# from dotenv import load_dotenv
-# load_dotenv()
+from bot import create_application
 
-# Logging setup
+# --- Logging setup ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Create Flask app
+# --- Flask App ---
 app = Flask(__name__)
-
-# Load Telegram bot application (dispatcher, handlers etc.)
 telegram_app: Application = create_application()
 
-# Webhook route – where Telegram sends POST updates
-@app.route(f"/{telegram_app.bot.token}", methods=["POST"])
-async def telegram_webhook():
+
+# --- Webhook route ---
+@app.route("/webhook", methods=["POST"])
+async def webhook():
     try:
         update = Update.de_json(request.get_json(force=True), telegram_app.bot)
         await telegram_app.process_update(update)
+        return "OK", 200
     except Exception as e:
-        logger.exception(f"❌ Error handling update: {e}")
-    return "OK", 200
+        logger.exception(f"❌ Webhook error: {e}")
+        return "Internal error", 500
 
-# Optional sanity check – useful for browser test
+
+# --- Sanity check ---
 @app.route("/", methods=["GET"])
-def root_check():
-    return "✅ Flask server running — bot is online."
+def index():
+    return "✅ Bot is online — Flask is responding."
 
-# Optional for manual testing
+
+# --- Local debug mode (optional) ---
 if __name__ == "__main__":
-    app.run(debug=True)
-
+    app.run(port=8080, debug=True)
