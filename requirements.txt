@@ -1,4 +1,0 @@
-flask>=2.2
-python-dotenv>=1.0.1
-aiosqlite>=0.19
-python-telegram-bot==20.7
